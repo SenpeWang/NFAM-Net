@@ -1,10 +1,25 @@
 # -*- coding: utf-8 -*-
-from .model import NFAMNet, build_Model
+"""NFAM-Net networks package."""
+
+from .model import NFAMNet, build_model
 from .encoder import Encoder
 from .decoder import Decoder
-from .ofe import OFEBlock
-from .ofm import OFMBlock
-
-from .npr import NPR
+from .dfe import DFEBlock
+from .nofm import NOFMBlock
+from .dfr import DFR
 from .layer import StageTransition, DropPath
 from .qtensor import QTensorTools, QImagePrior
+
+__all__ = [
+    'NFAMNet',
+    'build_model',
+    'Encoder',
+    'Decoder',
+    'DFEBlock',
+    'NOFMBlock',
+    'DFR',
+    'StageTransition',
+    'DropPath',
+    'QTensorTools',
+    'QImagePrior',
+]

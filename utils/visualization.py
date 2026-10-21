@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-可视化工具模块
-预测对比图 (2×2) / 向列序场 (2×2) / 训练曲线
+Visualization utilities.
+
+Includes prediction comparison plots, nematic order field plots and training
+curves. Comparison and nematic field figures use a 2x2 layout.
 """
 
 import os
@@ -11,14 +13,11 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from networks.qtensor import QTensorTools
 
-# ============================================================================
-# plot_predictions — 2×2 分割对比
-# ============================================================================
 
 def plot_predictions(image, gt_mask, pred_mask, save_path,
                      title='', channel_idx=0):
     """
-    2×2 分割对比:
+    2x2 segmentation comparison:
       ┌─────────────┬─────────────┐
       │  Input (ch)  │     GT      │
       ├─────────────┼─────────────┤
@@ -30,17 +29,14 @@ def plot_predictions(image, gt_mask, pred_mask, save_path,
 
     img_show = image[channel_idx] if image.ndim == 3 else image
 
-    # Input
     axes[0, 0].imshow(img_show, cmap='gray')
     axes[0, 0].set_title('Input', fontsize=11, fontweight='bold')
     axes[0, 0].axis('off')
 
-    # GT
     axes[0, 1].imshow(gt_mask, cmap='gray', vmin=0, vmax=1)
     axes[0, 1].set_title('Ground Truth', fontsize=11, fontweight='bold')
     axes[0, 1].axis('off')
 
-    # Overlay: GT(绿) + Pred(红), 重叠(黄)
     overlay = np.zeros((*gt_mask.shape, 3), dtype=np.float32)
     gt_bin = (gt_mask > 0).astype(np.float32)
     pred_bin = (pred_mask > 0).astype(np.float32)
@@ -51,7 +47,6 @@ def plot_predictions(image, gt_mask, pred_mask, save_path,
     axes[1, 0].set_title('Overlay (G=GT, R=Pred)', fontsize=11, fontweight='bold')
     axes[1, 0].axis('off')
 
-    # Pred
     axes[1, 1].imshow(pred_mask, cmap='gray', vmin=0, vmax=1)
     axes[1, 1].set_title('Prediction', fontsize=11, fontweight='bold')
     axes[1, 1].axis('off')
@@ -64,55 +59,46 @@ def plot_predictions(image, gt_mask, pred_mask, save_path,
     plt.close(fig)
 
 
-# ============================================================================
-# plot_nematic_field — 2×2 向列序场
-# ============================================================================
-
-def plot_nematic_field(S, Q1, Q2, save_path, gt_mask=None,
+def plot_nematic_field(s, q1, q2, save_path, gt_mask=None,
                        stride=8, title=''):
     """
-    2×2 向列序场:
+    2x2 nematic order field:
       ┌──────────────┬──────────────┐
-      │ S 热力图      │ θ 方向角图    │
+      │ S heatmap     │ θ angle map   │
       ├──────────────┼──────────────┤
-      │ Director 矢量 │ S + GT 等高线 │
+      │ Director arrows│ S + GT contour│
       └──────────────┴──────────────┘
     """
     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    H, W = S.shape
+    h, w = s.shape
 
-    # 从物理层解析角和方向向量
-    theta, dx, dy = QTensorTools.get_director_numpy(Q1, Q2)
+    theta, dx, dy = QTensorTools.get_director_numpy(q1, q2)
 
-    # S 热力图
-    im0 = axes[0, 0].imshow(S, cmap='inferno', vmin=0, vmax=1)
+    im0 = axes[0, 0].imshow(s, cmap='inferno', vmin=0, vmax=1)
     axes[0, 0].set_title('Order Parameter S', fontsize=11, fontweight='bold')
     axes[0, 0].axis('off')
     fig.colorbar(im0, ax=axes[0, 0], fraction=0.046, pad=0.04)
 
-    # θ 方向角图 (周期色图)
     im1 = axes[0, 1].imshow(theta, cmap='hsv', vmin=-np.pi / 2, vmax=np.pi / 2)
     axes[0, 1].set_title('Director Angle θ', fontsize=11, fontweight='bold')
     axes[0, 1].axis('off')
     fig.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
 
-    # Nematic 张量场 (无箭头线段)
-    ys = np.arange(stride // 2, H, stride)
-    xs = np.arange(stride // 2, W, stride)
-    Y, X = np.meshgrid(ys, xs, indexing='ij')
-    U = dx[Y, X] * S[Y, X]
-    V = dy[Y, X] * S[Y, X]
+    ys = np.arange(stride // 2, h, stride)
+    xs = np.arange(stride // 2, w, stride)
+    grid_y, grid_x = np.meshgrid(ys, xs, indexing='ij')
+    u = dx[grid_y, grid_x] * s[grid_y, grid_x]
+    v = dy[grid_y, grid_x] * s[grid_y, grid_x]
 
-    axes[1, 0].imshow(S, cmap='gray_r', vmin=0, vmax=1, alpha=0.3)
-    axes[1, 0].quiver(X, Y, U, -V,
-                       S[Y, X], cmap='coolwarm',
+    axes[1, 0].imshow(s, cmap='gray_r', vmin=0, vmax=1, alpha=0.3)
+    axes[1, 0].quiver(grid_x, grid_y, u, -v,
+                       s[grid_y, grid_x], cmap='coolwarm',
                        scale=25, width=0.003, clim=(0, 1),
                        headwidth=0, headlength=0, headaxislength=0, pivot='middle')
     axes[1, 0].set_title('Nematic Field', fontsize=11, fontweight='bold')
     axes[1, 0].axis('off')
 
-    # S + GT 等高线
-    axes[1, 1].imshow(S, cmap='inferno', vmin=0, vmax=1, alpha=0.7)
+    axes[1, 1].imshow(s, cmap='inferno', vmin=0, vmax=1, alpha=0.7)
     if gt_mask is not None:
         axes[1, 1].contour(gt_mask, levels=[0.5], colors='lime', linewidths=1.5)
         axes[1, 1].set_title('S + GT Contour', fontsize=11, fontweight='bold')
@@ -128,12 +114,7 @@ def plot_nematic_field(S, Q1, Q2, save_path, gt_mask=None,
     plt.close(fig)
 
 
-# ============================================================================
-# plot_loss_curves — 训练曲线
-# ============================================================================
-
 def plot_loss_curves(history, save_path, title='Training Curves'):
-    """绘制 loss 和评估指标变化折线图"""
     loss_keys = [k for k in history if 'loss' in k.lower()]
     metric_keys = [k for k in history if k not in loss_keys and len(history[k]) > 0]
 

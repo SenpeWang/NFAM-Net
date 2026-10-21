@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""DFE: Directional Feature Extraction block with dual-branch nematic projection.
+
+Extracts directional representations using parallel and perpendicular projections
+against the local director field.
+"""
+
 import torch
 import torch.nn as nn
 from .qtensor import QTensorTools
@@ -5,7 +12,9 @@ from .layer import _gn, DropPath
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, dim, drop_path=0.0):
+    """Standard residual convolutional block for shallow stage representation."""
+
+    def __init__(self, dim: int, drop_path: float = 0.0):
         super().__init__()
         self.conv = nn.Sequential(
             nn.GroupNorm(_gn(dim), dim),
@@ -17,20 +26,23 @@ class ConvBlock(nn.Module):
         )
         self.drop_path = DropPath(drop_path) if drop_path > 0 else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.drop_path(self.conv(x))
 
 
 class NematicConv(nn.Module):
+    """Nematic convolution decomposing feature gradients onto nematic director bases."""
+
     def __init__(self, dim: int):
         super().__init__()
         self.dim = dim
 
-        # Sobel 梯度提取
+        # Sobel gradient extractor
         self.grad = nn.Conv2d(dim, dim * 2, 3, padding=1, groups=dim, bias=False)
-        self._init_sobel(); self.grad.weight.requires_grad = False
+        self._init_sobel()
+        self.grad.weight.requires_grad = False
 
-        # 平行分支
+        # Parallel branch
         self.branch_par = nn.Sequential(
             nn.Conv2d(dim * 2, dim * 2, 3, padding=1, groups=dim * 2, bias=False),
             nn.GroupNorm(_gn(dim * 2), dim * 2),
@@ -38,7 +50,7 @@ class NematicConv(nn.Module):
             nn.Conv2d(dim * 2, dim, 1, bias=False),
         )
 
-        # 垂直分支
+        # Perpendicular branch
         self.branch_perp = nn.Sequential(
             nn.Conv2d(dim * 2, dim * 2, 3, padding=1, groups=dim * 2, bias=False),
             nn.GroupNorm(_gn(dim * 2), dim * 2),
@@ -46,7 +58,7 @@ class NematicConv(nn.Module):
             nn.Conv2d(dim * 2, dim, 1, bias=False),
         )
 
-        # 自学习融合 (跨分支空间交互 + 非线性)
+        # Cross-branch adaptive fusion
         self.fusion = nn.Sequential(
             nn.Conv2d(dim * 2, dim * 2, 3, padding=1, groups=dim * 2, bias=False),
             nn.GroupNorm(_gn(dim * 2), dim * 2),
@@ -67,40 +79,45 @@ class NematicConv(nn.Module):
                 self.grad.weight.data[2 * i, 0] = sx
                 self.grad.weight.data[2 * i + 1, 0] = sy
 
-    def forward(self, f_sem: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-        B, C, H, W = f_sem.shape
+    def forward(self, f_sem: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+        b, c, h, w = f_sem.shape
 
-        # ── 向列相基底解析 ──────────────────────────────────────
-        q1_hat, q2_hat = QTensorTools.get_unit_Q(Q[:, 0:1], Q[:, 1:2])
+        q1_hat, q2_hat = QTensorTools.get_unit_q(q[:, 0:1], q[:, 1:2])
 
-        # 梯度提取
-        R = self.grad(f_sem).view(B, C, 2, H, W)
-        R_x = R[:, :, 0]
-        R_y = R[:, :, 1]
+        r = self.grad(f_sem).view(b, c, 2, h, w)
+        r_x = r[:, :, 0]
+        r_y = r[:, :, 1]
 
-        # 向列相投影
-        R_par_x = 0.5 * ((1 + q1_hat) * R_x + q2_hat * R_y)
-        R_par_y = 0.5 * (q2_hat * R_x + (1 - q1_hat) * R_y)
-        R_perp_x = 0.5 * ((1 - q1_hat) * R_x - q2_hat * R_y)
-        R_perp_y = 0.5 * (-q2_hat * R_x + (1 + q1_hat) * R_y)
+        r_par_x = 0.5 * ((1 + q1_hat) * r_x + q2_hat * r_y)
+        r_par_y = 0.5 * (q2_hat * r_x + (1 - q1_hat) * r_y)
+        r_perp_x = 0.5 * ((1 - q1_hat) * r_x - q2_hat * r_y)
+        r_perp_y = 0.5 * (-q2_hat * r_x + (1 + q1_hat) * r_y)
 
-        # 双分支编码
-        F_par = self.branch_par(torch.cat([R_par_x, R_par_y], dim=1))
-        F_perp = self.branch_perp(torch.cat([R_perp_x, R_perp_y], dim=1))
+        f_par = self.branch_par(torch.cat([r_par_x, r_par_y], dim=1))
+        f_perp = self.branch_perp(torch.cat([r_perp_x, r_perp_y], dim=1))
 
-        # 自学习融合 + 残差
-        F = self.fusion(torch.cat([F_par, F_perp], dim=1))
-        return f_sem + F
+        f_fused = self.fusion(torch.cat([f_par, f_perp], dim=1))
+        return f_sem + f_fused
 
 
-class OFEBlock(nn.Module):
+class DFEBlock(nn.Module):
+    """Directional Feature Extraction Block for shallow stages.
 
-    def __init__(self, dim, drop_path=0.0, **kwargs):
+    Args:
+        dim: Feature channel dimension.
+        drop_path: Stochastic depth rate. Defaults to 0.0.
+        enable_nematic: Whether to apply NematicConv directional decomposition.
+            Defaults to True. When False, acts as pure ConvBlock for ablation study.
+    """
+
+    def __init__(self, dim: int, drop_path: float = 0.0, enable_nematic: bool = True, **kwargs):
         super().__init__()
         self.conv = ConvBlock(dim, drop_path=drop_path)
+        self.enable_nematic = enable_nematic
         self.nematic = NematicConv(dim)
 
-    def forward(self, x, Q=None):
+    def forward(self, x: torch.Tensor, q: torch.Tensor = None) -> torch.Tensor:
         x = self.conv(x)
-        x = self.nematic(x, Q)
+        if self.enable_nematic and q is not None:
+            x = self.nematic(x, q)
         return x

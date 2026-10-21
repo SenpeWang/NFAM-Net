@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-评估指标模块 (二分类: 前景 vs 背景)
+Evaluation metrics for binary foreground/background segmentation.
 
-Dice / IoU / clDice / Precision / Recall
-所有指标均为 Macro Average (样本间等权)。
+Includes Dice, IoU, clDice, Precision and Recall.
+All metrics are macro-averaged with equal weight per sample.
 """
 
 import numpy as np
@@ -11,22 +11,20 @@ import torch
 from skimage.morphology import skeletonize
 
 
-# ============================================================================
-# Dice (Torch Tensor 版, 支持 Batch, 二分类)
-# ============================================================================
-
 def calculate_dice(pred, target):
     """
-    批量二分类 Dice 指标 (Macro Average)。
+    Batch-level binary Dice with macro averaging.
 
-    每个样本独立计算前景 Dice，最终取样本间算术平均。
-    GT 全 0 且 Pred 全 0 的样本视为无效，不参与均值。
+    Foreground Dice is computed independently per sample and averaged
+    arithmetically over samples. Samples where both GT and prediction
+    are all zeros are treated as invalid and excluded from the mean.
 
     Args:
-        pred:   (B, C, H, W) logits 或 (B, H, W) 类别索引
-        target: (B, H, W) 类别索引 {0, 1}
+        pred:   (B, C, H, W) logits or (B, H, W) class indices
+        target: (B, H, W) class indices {0, 1}
     Returns:
-        (dice_sum, valid_count): 前景 Dice 累加和与有效样本数
+        dice_sum and valid_count: the accumulated foreground Dice and
+        the number of valid samples
     """
     if pred.dim() == 4:
         pred = torch.argmax(pred, dim=1)
@@ -35,11 +33,11 @@ def calculate_dice(pred, target):
     dice_sum, valid = 0.0, 0
 
     for i in range(batch_size):
-        p = (pred[i] > 0).float()   # 前景 mask
-        t = (target[i] > 0).float() # 前景 mask
+        p = (pred[i] > 0).float()
+        t = (target[i] > 0).float()
 
         if p.sum() == 0 and t.sum() == 0:
-            continue  # 跳过无效样本
+            continue
 
         inter = (p * t).sum()
         union = p.sum() + t.sum()
@@ -49,14 +47,10 @@ def calculate_dice(pred, target):
     return dice_sum, valid
 
 
-# ============================================================================
-# clDice (中心线 Dice)
-# ============================================================================
-
 def cl_dice(pred_bin, gt_bin):
     """
-    Centerline Dice: 基于骨架的拓扑连通性指标。
-    衡量细长神经元结构的连续性。
+    Centerline Dice: skeleton-based topological connectivity metric
+    measuring the continuity of elongated neurite structures.
 
     T_prec = |pred ∩ skel(gt)| / |skel(gt)|
     T_sens = |gt ∩ skel(pred)| / |skel(pred)|
@@ -77,20 +71,18 @@ def cl_dice(pred_bin, gt_bin):
     t_sens = np.sum(gt_bin * skel_pred) / np.sum(skel_pred)
     return 2 * t_prec * t_sens / (t_prec + t_sens + 1e-8)
 
-# ============================================================================
-# 综合指标 (单样本, 二分类)
-# ============================================================================
 
 def calculate_sample_metrics(pred, gt, threshold=0.5):
     """
-    计算单样本二分类完整指标集 (Macro Average)。
+    Compute the full metric set for a single binary sample.
 
-    GT 全 0 且 Pred 全 0 的样本标记为无效 (valid=False)，不参与均值。
+    Samples where both GT and prediction are all zeros are marked
+    invalid (valid=False) and excluded from the mean.
 
     Args:
-        pred:      (H, W) float 预测概率
-        gt:        (H, W) {0,1} 标签
-        threshold: 二值化阈值
+        pred:      (H, W) float prediction probabilities
+        gt:        (H, W) {0, 1} labels
+        threshold: binarization threshold
     Returns:
         dict: dice, iou, precision, recall, cldice, valid
     """
@@ -110,15 +102,15 @@ def calculate_sample_metrics(pred, gt, threshold=0.5):
     gt_sum = np.sum(gt_bin)
     union = pred_sum + gt_sum - inter
 
-    TP = inter
-    FP = pred_sum - inter
-    FN = gt_sum - inter
+    tp = inter
+    fp = pred_sum - inter
+    fn = gt_sum - inter
 
     return {
         'dice': (2 * inter) / (pred_sum + gt_sum + 1e-8),
         'iou': inter / (union + 1e-8),
-        'precision': TP / (TP + FP + 1e-8),
-        'recall': TP / (TP + FN + 1e-8),
+        'precision': tp / (tp + fp + 1e-8),
+        'recall': tp / (tp + fn + 1e-8),
         'cldice': cl_dice(pred_bin, gt_bin),
         'valid': True,
     }

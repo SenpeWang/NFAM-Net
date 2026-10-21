@@ -7,7 +7,7 @@ from .qtensor import QTensorTools
 
 
 def _gn(ch):
-    """GroupNorm 组数: 从大到小找能整除 ch 的最大组数."""
+    """GroupNorm group count: largest divisor of ch among (16, 8, 4, 2)."""
     for g in (16, 8, 4, 2):
         if ch % g == 0:
             return g
@@ -62,7 +62,7 @@ class StageTransition(nn.Module):
         super().__init__()
         self.feat_down = DownsampleLayer(feat_in, feat_out)
 
-    def forward(self, feat, Q):
+    def forward(self, feat, q):
         feat_next = self.feat_down(feat)
-        Q_next = QTensorTools.downsample_Q(Q[:, 0:1], Q[:, 1:2], feat_next.shape[2:])
-        return feat_next, Q_next
+        q_next = QTensorTools.downsample_q(q[:, 0:1], q[:, 1:2], feat_next.shape[2:])
+        return feat_next, q_next

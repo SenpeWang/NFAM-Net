@@ -1,49 +1,60 @@
 # -*- coding: utf-8 -*-
 """
-数据集注册表
-字典管理多数据集路径 / 通道数 / shape_format
+Dataset registry.
+
+Dict-based registry managing per-dataset root path, channel count and
+shape_format.
 """
 import os
 
-# ============================================================================
-# 数据集注册表
-# ============================================================================
 
 DATASET_REGISTRY = {
-    'NEURO': {
+    'PDAC': {
         'root': '/home/wangshengping/DataSet/Neuro',
         'channels': 8,
         'shape_format': 'CHW',
     },
-    'SY5Y': {
+    'NeuroQuantify': {
         'root': '/home/wangshengping/DataSet/SY5Y',
         'channels': 1,
         'shape_format': 'HW',
         'label_suffix': '',
+        'normalize': 'zscore',
+        'intensity_aug': True,
     },
-    'NEURITE': {
+    'NeuriteOutgrowth': {
         'root': '/home/wangshengping/DataSet/Neurite',
         'channels': 1,
         'shape_format': 'HW',
+
+        'normalize': 'zscore',
+        'intensity_aug': True,
+        'oversample': True,
     },
-    'LS': {
-        'root': '/home/wangshengping/DataSet/LS',
+    'ARCADE': {
+        'root': '/home/wangshengping/DataSet/ARCADE',
         'channels': 1,
         'shape_format': 'HW',
+        'label_dir': 'masks',
+        'normalize': 'zscore',
+        'intensity_aug': True,
+        'oversample': True,
+        'split_map': {'val': 'train'},
     },
 }
 
+
 def get_dataset_config(name: str) -> dict:
-    name = name.upper()
     if name not in DATASET_REGISTRY:
-        raise ValueError(f'未知数据集: {name}，可选: {list(DATASET_REGISTRY.keys())}')
+        raise ValueError(
+            f'Unknown dataset: {name}, available: {list(DATASET_REGISTRY.keys())}')
     return DATASET_REGISTRY[name]
 
 
 def get_dataset_paths(name: str, split: str):
-    """返回 (images_dir, labels_dir)"""
     info = get_dataset_config(name)
     root = info['root']
+    split = info.get('split_map', {}).get(split, split)
     images_dir = os.path.join(root, split, 'images')
-    labels_dir = os.path.join(root, split, 'labels')
+    labels_dir = os.path.join(root, split, info.get('label_dir', 'labels'))
     return images_dir, labels_dir

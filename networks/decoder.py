@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """UPerNet decoder for NFAM-Net segmentation.
 
-解码器内部流程:
-  1. PPM 提取多尺度上下文
-  2. FPN 上采样 + 跳跃连接
-  3. 分割头输出
+Internal decoder pipeline:
+  1. PPM extracts multi-scale context
+  2. FPN upsampling + skip connections
+  3. Segmentation head output
 """
 
 import torch

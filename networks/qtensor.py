@@ -15,6 +15,7 @@ import torch.nn.functional as F
 SOBEL_X = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]) / 8.0
 SOBEL_Y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]) / 8.0
 
+
 class QTensorTools:
     """Nematic Q-tensor operations — single entry for all Q-tensor math.
 
@@ -22,67 +23,71 @@ class QTensorTools:
     No external script should perform Q-tensor math; only pass q1/q2 here.
     """
 
-    # ── 基础量 ────────────────────────────────────────────────────────
+    # ── Basic quantities ─────────────────────────────────────────────
 
     @staticmethod
-    def get_S(q1, q2, eps=1e-8):
-        """标量序参量 S = sqrt(q1^2 + q2^2). 当 Q 经过 get_Qtensor 归一化后值域 [0,1]."""
+    def get_s(q1, q2, eps=1e-8):
+        """Scalar order parameter S = sqrt(q1^2 + q2^2).
+
+        After normalization via get_qtensor, values lie in [0, 1].
+        """
         return torch.sqrt(q1.pow(2) + q2.pow(2) + eps)
 
-    # ── Q-tensor 构造与归一化 ────────────────────────────────────────
+    # ── Q-tensor construction and normalization ─────────────────────
 
     @staticmethod
-    def get_Qtensor(q1, q2, Q_max_norm=1.0, eps=1e-8):
-        """归一化 Q-tensor (2ch), 模 capped at Q_max_norm."""
-        Q = torch.cat([q1, q2], dim=1)
-        n = QTensorTools.get_S(q1, q2, eps)
-        scale = torch.clamp(float(Q_max_norm) / (n + eps), max=1.0)
-        return Q * scale
+    def get_qtensor(q1, q2, q_max_norm=1.0, eps=1e-8):
+        """Normalize the Q-tensor (2ch), capping its magnitude at q_max_norm."""
+        q = torch.cat([q1, q2], dim=1)
+        n = QTensorTools.get_s(q1, q2, eps)
+        scale = torch.clamp(float(q_max_norm) / (n + eps), max=1.0)
+        return q * scale
 
     @staticmethod
-    def get_Nematic(q1, q2, eps=1e-8):
-        """返回 [Q, S] (3ch): q1, q2 加上标量序参量 S."""
-        Q = torch.cat([q1, q2], dim=1)
-        S = QTensorTools.get_S(q1, q2, eps)
-        return torch.cat([Q, S], dim=1)
+    def get_nematic(q1, q2, eps=1e-8):
+        """Return [Q, S] (3ch): q1, q2 plus the scalar order parameter S."""
+        q = torch.cat([q1, q2], dim=1)
+        s = QTensorTools.get_s(q1, q2, eps)
+        return torch.cat([q, s], dim=1)
 
-
-    # ── 上下采样 ──────────────────────────────────────────────────────
+    # ── Up/down-sampling ─────────────────────────────────────────────
 
     @staticmethod
-    def downsample_Q(q1, q2, size=None, Q_max_norm=1.0):
-        """下采样 q1/q2 (双线性插值 + 重归一化)."""
+    def downsample_q(q1, q2, size=None, q_max_norm=1.0):
+        """Downsample q1/q2 (bilinear interpolation + re-normalization)."""
         if size is None:
             size = (q1.shape[2] // 2, q1.shape[3] // 2)
         q1 = F.interpolate(q1, size=size, mode="bilinear", align_corners=False)
         q2 = F.interpolate(q2, size=size, mode="bilinear", align_corners=False)
-        return QTensorTools.get_Qtensor(q1, q2, Q_max_norm)
-
+        return QTensorTools.get_qtensor(q1, q2, q_max_norm)
 
     @staticmethod
-    def get_unit_Q(q1, q2, threshold=0.05, eps=1e-6):
-        """Q-tensor 单位方向 (cos2θ, sin2θ)，低 S 区域清零.
+    def get_unit_q(q1, q2, threshold=0.05, eps=1e-6):
+        """Unit director of the Q-tensor (cos2θ, sin2θ); zeroed where S is low.
 
-        Returns: (q1_hat, q2_hat), shape 同输入 q1/q2
+        Returns:
+            (q1_hat, q2_hat) with the same shape as the input q1/q2.
         """
-        S = QTensorTools.get_S(q1, q2)
-        mask = (S > threshold).float()
-        q1_hat = q1 / S.clamp_min(eps) * mask
-        q2_hat = q2 / S.clamp_min(eps) * mask
+        s = QTensorTools.get_s(q1, q2)
+        mask = (s > threshold).float()
+        q1_hat = q1 / s.clamp_min(eps) * mask
+        q2_hat = q2 / s.clamp_min(eps) * mask
         return q1_hat, q2_hat
 
-    # ── 可视化 ────────────────────────────────────────────────────────
+    # ── Visualization ────────────────────────────────────────────────
 
     @staticmethod
     def get_director_numpy(q1, q2, eps=1e-8):
-        """numpy 版: 提取方向角 θ 和方向向量 (dx, dy)."""
+        """NumPy version: extract the director angle θ and vector (dx, dy)."""
         theta = 0.5 * np.arctan2(q2, q1 + eps)
         dx = np.cos(theta)
         dy = np.sin(theta)
         return theta, dx, dy
 
+
 class QImagePrior(nn.Module):
     """Compute Q-tensor prior from raw image (fixed, no_grad)."""
+
     def __init__(self, sigma_g=0.0, sigma_t=1.0, tangent=True):
         super().__init__()
         self.tangent = tangent
@@ -130,16 +135,16 @@ class QImagePrior(nn.Module):
         trace = j11 + j22
         diff_raw = (j11 - j22) ** 2 + 4 * j12 ** 2
         diff = torch.sqrt(diff_raw.clamp(min=1e-8))
-        S = (diff / (trace + 1e-8)).clamp(0, 1)
+        s = (diff / (trace + 1e-8)).clamp(0, 1)
         cos2theta = (j11 - j22) / diff
         sin2theta = (2 * j12) / diff
-        q1 = S * cos2theta
-        q2 = S * sin2theta
+        q1 = s * cos2theta
+        q2 = s * sin2theta
         # Zero out where diff_raw is too small (no reliable direction)
         valid = diff_raw > 1e-8
         q1 = q1 * valid.float()
         q2 = q2 * valid.float()
-        S = S * valid.float()
+        s = s * valid.float()
         if self.tangent:
             q1, q2 = -q1, -q2
-        return q1, q2, S
+        return q1, q2, s
