@@ -29,3 +29,13 @@ __pycache__/
 *.py[cod]
 *.class
 .pytest_cache/
+
+# Figures used by the bilingual project READMEs
+!docs/figures/framework.pdf
+!docs/figures/framework.png
+!docs/figures/dfr.pdf
+!docs/figures/dfr.png
+!docs/figures/dfe.pdf
+!docs/figures/dfe.png
+!docs/figures/nofm.pdf
+!docs/figures/nofm.png
